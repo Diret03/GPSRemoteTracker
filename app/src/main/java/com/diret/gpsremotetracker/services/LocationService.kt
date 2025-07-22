@@ -1,0 +1,102 @@
+package com.diret.gpsremotetracker.services
+
+import android.annotation.SuppressLint
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Intent
+import android.os.Build
+import android.os.IBinder
+import android.os.Looper
+import android.provider.Settings
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.diret.gpsremotetracker.dt.AppDatabase
+import com.diret.gpsremotetracker.dt.SensorData
+
+import com.google.android.gms.location.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
+
+class LocationService : Service() {
+
+    private val job = SupervisorJob()
+    private val scope = CoroutineScope(Dispatchers.IO + job)
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var locationCallback: LocationCallback
+    private lateinit var db: AppDatabase
+
+    override fun onCreate() {
+        super.onCreate()
+        db = AppDatabase.getDatabase(this)
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        setupLocationCallback()
+        Log.d("LocationService", "Service Created.")
+    }
+
+    @SuppressLint("MissingPermission")
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d("LocationService", "Service Started.")
+        startForegroundService()
+
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, TimeUnit.SECONDS.toMillis(30))
+            .setWaitForAccurateLocation(false)
+            .setMinUpdateIntervalMillis(TimeUnit.SECONDS.toMillis(20))
+            .setMaxUpdateDelayMillis(TimeUnit.SECONDS.toMillis(45))
+            .build()
+
+        fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+
+        return START_STICKY
+    }
+
+    private fun setupLocationCallback() {
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(locationResult: LocationResult) {
+                locationResult.lastLocation?.let { location ->
+                    Log.d("LocationService", "New location received: Lat=${location.latitude}, Lon=${location.longitude}")
+                    val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+                    val sensorData = SensorData(
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        timestamp = System.currentTimeMillis(),
+                        deviceId = deviceId
+                    )
+                    scope.launch {
+                        db.appDao().insertSensorData(sensorData)
+                        Log.i("LocationService", "Sensor data inserted into database.")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun startForegroundService() {
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        val channelId = "location_service_channel"
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(channelId, "Location Service", NotificationManager.IMPORTANCE_DEFAULT)
+            notificationManager.createNotificationChannel(channel)
+        }
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Monitor Remoto Activo")
+            .setContentText("Recolectando datos de ubicación en segundo plano.")
+            .setSmallIcon(com.diret.gpsremotetracker.R.mipmap.ic_launcher)
+            .build()
+
+        startForeground(1, notification)
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        super.onDestroy()
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+        job.cancel()
+    }
+}
