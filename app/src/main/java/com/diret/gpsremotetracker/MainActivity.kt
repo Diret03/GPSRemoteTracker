@@ -14,6 +14,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,12 +40,14 @@ import androidx.core.content.ContextCompat
 import com.diret.gpsremotetracker.dt.AppDatabase
 import com.diret.gpsremotetracker.dt.AuthCredentials
 import com.diret.gpsremotetracker.dt.SensorData
+import com.diret.gpsremotetracker.server.DeviceStatusProvider
 import com.diret.gpsremotetracker.server.WebServer
 import com.diret.gpsremotetracker.services.LocationService
 import com.diret.gpsremotetracker.services.SettingsManager
 import com.diret.gpsremotetracker.state.DataCollectionStateHolder
 import com.diret.gpsremotetracker.ui.theme.GPSRemoteTrackerTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -118,6 +121,8 @@ fun MainScreen(
     var isServiceRunning by remember { mutableStateOf(false) }
     var authToken by remember { mutableStateOf<String?>(null) }
     var lastSensorData by remember { mutableStateOf<SensorData?>(null) }
+    var deviceStatus by remember { mutableStateOf<Map<String, Any>?>(null) }
+    val deviceStatusProvider = remember { DeviceStatusProvider(context) }
 
     val permissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -153,6 +158,20 @@ fun MainScreen(
         }
     }
 
+    // --- AÑADIDO: Efecto para actualizar el estado del dispositivo periódicamente ---
+    LaunchedEffect(isServiceRunning) {
+        if (isServiceRunning) {
+            while (true) {
+                deviceStatus = withContext(Dispatchers.IO) {
+                    deviceStatusProvider.getDeviceStatus()
+                }
+                delay(10000) // Actualiza cada 10 segundos
+            }
+        } else {
+            deviceStatus = null
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -181,6 +200,13 @@ fun MainScreen(
                 Spacer(modifier = Modifier.height(16.dp))
                 StatusCard(hasPermissions, isServiceRunning, lastSensorData)
                 Spacer(modifier = Modifier.height(16.dp))
+                // --- AÑADIDO: Muestra la nueva tarjeta si el servicio está activo ---
+                AnimatedVisibility(visible = isServiceRunning) {
+                    Column {
+                        DeviceStatusCard(status = deviceStatus)
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                }
                 InfoCard(isServiceRunning, getIpAddress(context), authToken)
                 Spacer(modifier = Modifier.height(16.dp))
                 ConfigurationCard(settingsManager)
@@ -264,7 +290,7 @@ fun StatusCard(hasPermissions: Boolean, isServiceRunning: Boolean, lastSensorDat
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column {
-                Text(text = "Estado", style = MaterialTheme.typography.labelMedium)
+                Text(text = "Estado del GPS", style = MaterialTheme.typography.labelMedium)
                 Text(
                     text = statusText,
                     style = MaterialTheme.typography.titleLarge,
@@ -301,6 +327,48 @@ fun StatusCard(hasPermissions: Boolean, isServiceRunning: Boolean, lastSensorDat
     }
 }
 
+// --- AÑADIDO: Nueva tarjeta para mostrar el estado del dispositivo ---
+@Composable
+fun DeviceStatusCard(status: Map<String, Any>?) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Estado del Dispositivo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (status == null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Cargando estado...", style = MaterialTheme.typography.bodyMedium)
+                }
+            } else {
+                val battery = status["battery"] as? Map<*, *>
+                val network = status["network"] as? Map<*, *>
+                val storage = status["storage"] as? Map<*, *>
+
+                // Batería
+                val batteryIcon = if (battery?.get("isCharging") == true) Icons.Default.BatteryChargingFull else Icons.Default.BatteryStd
+                val batteryText = "${battery?.get("levelPercent")}%" + if (battery?.get("isCharging") == true) " (Cargando)" else ""
+                InfoRow(icon = batteryIcon, label = "Batería", value = batteryText)
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+                // Red
+                val networkIcon = if (network?.get("isConnected") == true) Icons.Default.SignalWifi4Bar else Icons.Default.SignalWifiOff
+                val networkText = network?.get("connectionType") as? String ?: "Desconocido"
+                InfoRow(icon = networkIcon, label = "Red", value = networkText)
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+                // Almacenamiento
+                val storageText = "Disponible: ${storage?.get("availableGB")} GB / Total: ${storage?.get("totalGB")} GB"
+                InfoRow(icon = Icons.Default.Storage, label = "Almacenamiento", value = storageText)
+            }
+        }
+    }
+}
+
 @Composable
 fun InfoCard(isServiceRunning: Boolean, ipAddress: String, authToken: String?) {
     val clipboardManager = LocalClipboardManager.current
@@ -311,7 +379,7 @@ fun InfoCard(isServiceRunning: Boolean, ipAddress: String, authToken: String?) {
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             InfoRow(
-                icon = Icons.Default.Wifi,
+                icon = Icons.Default.Router,
                 label = "Dirección IP del Servidor",
                 value = if (isServiceRunning) "$ipAddress:9999" else "N/A"
             )
@@ -349,19 +417,17 @@ fun ConfigurationCard(settingsManager: SettingsManager) {
             Text(text = "Configuración de Recolección", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(16.dp))
 
-            // --- AÑADIDO: Slider para el intervalo ---
             Text("Intervalo de recolección: ${sliderPosition.roundToInt()} segundos", style = MaterialTheme.typography.labelLarge)
             Slider(
                 value = sliderPosition,
                 onValueChange = { sliderPosition = it },
-                valueRange = 10f..120f, // Rango de 10 a 120 segundos
-                steps = 10, // Permite seleccionar en pasos (10, 20, 30...)
+                valueRange = 10f..120f,
+                steps = 10,
                 onValueChangeFinished = {
                     settingsManager.saveCollectionInterval(sliderPosition.roundToInt())
                 }
             )
             Spacer(modifier = Modifier.height(16.dp))
-
 
             Text("Días activos:", style = MaterialTheme.typography.labelLarge)
             Row(
