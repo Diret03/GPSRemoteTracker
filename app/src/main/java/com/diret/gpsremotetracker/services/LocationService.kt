@@ -14,7 +14,12 @@ import androidx.core.app.NotificationCompat
 import com.diret.gpsremotetracker.dt.AppDatabase
 import com.diret.gpsremotetracker.dt.SensorData
 import com.diret.gpsremotetracker.state.DataCollectionStateHolder
-import com.google.android.gms.location.*
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,7 +39,7 @@ class LocationService : Service() {
         super.onCreate()
         db = AppDatabase.getDatabase(this)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        settingsManager = SettingsManager(this) // Inicializar el gestor de configuración
+        settingsManager = SettingsManager(this)
         setupLocationCallback()
         Log.d("LocationService", "Service Created.")
     }
@@ -44,11 +49,19 @@ class LocationService : Service() {
         Log.d("LocationService", "Service Started.")
         startForegroundService()
 
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, TimeUnit.SECONDS.toMillis(30))
+        val intervalSeconds = settingsManager.getCollectionInterval().toLong()
+        val intervalMillis = TimeUnit.SECONDS.toMillis(intervalSeconds)
+        Log.d("LocationService", "Configurando la recolección cada $intervalSeconds segundos.")
+
+        // --- LÓGICA CORREGIDA ---
+        // Ahora todos los parámetros de tiempo se basan en el mismo valor,
+        // lo que le da al sistema una instrucción clara y consistente.
+        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, intervalMillis)
             .setWaitForAccurateLocation(false)
-            .setMinUpdateIntervalMillis(TimeUnit.SECONDS.toMillis(20))
-            .setMaxUpdateDelayMillis(TimeUnit.SECONDS.toMillis(45))
+            .setMinUpdateIntervalMillis(intervalMillis) // El intervalo mínimo es el mismo que el principal.
+            .setMaxUpdateDelayMillis(intervalMillis + TimeUnit.SECONDS.toMillis(5)) // Un pequeño margen de retraso.
             .build()
+        // --- FIN DE LA CORRECCIÓN ---
 
         fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
 
@@ -58,7 +71,6 @@ class LocationService : Service() {
     private fun setupLocationCallback() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
-                // --- AÑADIDO: Comprobar si la recolección está activa según el horario ---
                 if (!settingsManager.isCollectionTimeActive()) {
                     Log.v("LocationService", "Skipping data collection outside of scheduled time.")
                     return

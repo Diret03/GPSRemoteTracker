@@ -22,7 +22,18 @@ class SettingsManager(context: Context) {
         const val KEY_START_MINUTE = "start_minute"
         const val KEY_END_HOUR = "end_hour"
         const val KEY_END_MINUTE = "end_minute"
+        const val KEY_COLLECTION_INTERVAL = "collection_interval" // --- AÑADIDO ---
         private const val TAG = "SettingsManager"
+    }
+
+    // --- Intervalo de Recolección ---
+    fun saveCollectionInterval(seconds: Int) {
+        prefs.edit().putInt(KEY_COLLECTION_INTERVAL, seconds).apply()
+    }
+
+    fun getCollectionInterval(): Int {
+        // El valor por defecto es 30 segundos, como pide el desafío.
+        return prefs.getInt(KEY_COLLECTION_INTERVAL, 30)
     }
 
     // --- Días de la Semana ---
@@ -45,7 +56,7 @@ class SettingsManager(context: Context) {
     }
 
     fun getStartTime(): Pair<Int, Int> {
-        val hour = prefs.getInt(KEY_START_HOUR, 10) // 10:00 por defecto
+        val hour = prefs.getInt(KEY_START_HOUR, 22) // 22:00 por defecto
         val minute = prefs.getInt(KEY_START_MINUTE, 0)
         return Pair(hour, minute)
     }
@@ -59,14 +70,14 @@ class SettingsManager(context: Context) {
     }
 
     fun getEndTime(): Pair<Int, Int> {
-        val hour = prefs.getInt(KEY_END_HOUR, 11) // 11:59 por defecto
+        val hour = prefs.getInt(KEY_END_HOUR, 0) // 00:59 por defecto
         val minute = prefs.getInt(KEY_END_MINUTE, 59)
         return Pair(hour, minute)
     }
 
     /**
      * Comprueba si la recolección de datos debe estar activa en el momento actual
-     * según la configuración guardada. Ahora incluye logs detallados.
+     * según la configuración guardada.
      */
     fun isCollectionTimeActive(): Boolean {
         val calendar = Calendar.getInstance()
@@ -96,7 +107,16 @@ class SettingsManager(context: Context) {
         val startTimeInMinutes = startHour * 60 + startMinute
         val endTimeInMinutes = endHour * 60 + endMinute
         val currentTimeInMinutes = currentHour * 60 + currentMinute
-        val isTimeActive = currentTimeInMinutes in startTimeInMinutes..endTimeInMinutes
+
+        // --- LÓGICA CORREGIDA PARA HORARIOS NOCTURNOS ---
+        val isTimeActive = if (startTimeInMinutes <= endTimeInMinutes) {
+            // Horario normal (ej. 09:00 a 18:00)
+            currentTimeInMinutes in startTimeInMinutes..endTimeInMinutes
+        } else {
+            // Horario nocturno que cruza la medianoche (ej. 22:00 a 02:00)
+            currentTimeInMinutes >= startTimeInMinutes || currentTimeInMinutes <= endTimeInMinutes
+        }
+        // --- FIN DE LA CORRECCIÓN ---
 
         Log.d(TAG, "Horario configurado: de $startHour:$startMinute a $endHour:$endMinute")
         Log.d(TAG, "Hora actual: $currentHour:$currentMinute. ¿Está activa? $isTimeActive")

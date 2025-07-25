@@ -49,6 +49,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
 
@@ -337,6 +338,7 @@ fun ConfigurationCard(settingsManager: SettingsManager) {
     val (endHour, endMinute) = settingsManager.getEndTime()
     var startTime by remember { mutableStateOf(String.format("%02d:%02d", startHour, startMinute)) }
     var endTime by remember { mutableStateOf(String.format("%02d:%02d", endHour, endMinute)) }
+    var sliderPosition by remember { mutableStateOf(settingsManager.getCollectionInterval().toFloat()) }
     val context = LocalContext.current
 
     Card(
@@ -346,6 +348,20 @@ fun ConfigurationCard(settingsManager: SettingsManager) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(text = "Configuración de Recolección", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(16.dp))
+
+            // --- AÑADIDO: Slider para el intervalo ---
+            Text("Intervalo de recolección: ${sliderPosition.roundToInt()} segundos", style = MaterialTheme.typography.labelLarge)
+            Slider(
+                value = sliderPosition,
+                onValueChange = { sliderPosition = it },
+                valueRange = 10f..120f, // Rango de 10 a 120 segundos
+                steps = 10, // Permite seleccionar en pasos (10, 20, 30...)
+                onValueChangeFinished = {
+                    settingsManager.saveCollectionInterval(sliderPosition.roundToInt())
+                }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
 
             Text("Días activos:", style = MaterialTheme.typography.labelLarge)
             Row(
