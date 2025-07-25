@@ -13,7 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.diret.gpsremotetracker.dt.AppDatabase
 import com.diret.gpsremotetracker.dt.SensorData
-
+import com.diret.gpsremotetracker.state.DataCollectionStateHolder
 import com.google.android.gms.location.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,11 +28,13 @@ class LocationService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
     private lateinit var db: AppDatabase
+    private lateinit var settingsManager: SettingsManager
 
     override fun onCreate() {
         super.onCreate()
         db = AppDatabase.getDatabase(this)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        settingsManager = SettingsManager(this) // Inicializar el gestor de configuración
         setupLocationCallback()
         Log.d("LocationService", "Service Created.")
     }
@@ -56,6 +58,12 @@ class LocationService : Service() {
     private fun setupLocationCallback() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
+                // --- AÑADIDO: Comprobar si la recolección está activa según el horario ---
+                if (!settingsManager.isCollectionTimeActive()) {
+                    Log.v("LocationService", "Skipping data collection outside of scheduled time.")
+                    return
+                }
+
                 locationResult.lastLocation?.let { location ->
                     Log.d("LocationService", "New location received: Lat=${location.latitude}, Lon=${location.longitude}")
                     val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
@@ -68,6 +76,7 @@ class LocationService : Service() {
                     scope.launch {
                         db.appDao().insertSensorData(sensorData)
                         Log.i("LocationService", "Sensor data inserted into database.")
+                        DataCollectionStateHolder.notifyDataSaved(sensorData)
                     }
                 }
             }
