@@ -158,100 +158,112 @@ fun MainScreen(
         }
     }
 
-    // --- AÑADIDO: Efecto para actualizar el estado del dispositivo periódicamente ---
     LaunchedEffect(isServiceRunning) {
         if (isServiceRunning) {
             while (true) {
                 deviceStatus = withContext(Dispatchers.IO) {
                     deviceStatusProvider.getDeviceStatus()
                 }
-                delay(10000) // Actualiza cada 10 segundos
+                delay(10000)
             }
         } else {
             deviceStatus = null
         }
     }
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            TopAppBar(
-                title = { Text("Monitor Remoto") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary
+    // --- MODIFICADO: Se usa un Box para poder posicionar el Snackbar arriba ---
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("GPS Remote Tracker") },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 )
-            )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
+            }
+        ) { paddingValues ->
             Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Spacer(modifier = Modifier.height(16.dp))
-                StatusCard(hasPermissions, isServiceRunning, lastSensorData)
-                Spacer(modifier = Modifier.height(16.dp))
-                // --- AÑADIDO: Muestra la nueva tarjeta si el servicio está activo ---
-                AnimatedVisibility(visible = isServiceRunning) {
-                    Column {
-                        DeviceStatusCard(status = deviceStatus)
-                        Spacer(modifier = Modifier.height(16.dp))
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    StatusCard(hasPermissions, isServiceRunning, lastSensorData)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    AnimatedVisibility(visible = isServiceRunning) {
+                        Column {
+                            DeviceStatusCard(status = deviceStatus)
+                            Spacer(modifier = Modifier.height(16.dp))
+                            ApiEndpointsCard(ipAddress = getIpAddress(context))
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
                     }
+
+                    CredentialsCard(authToken = authToken)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    ConfigurationCard(settingsManager)
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
-                InfoCard(isServiceRunning, getIpAddress(context), authToken)
-                Spacer(modifier = Modifier.height(16.dp))
-                ConfigurationCard(settingsManager)
-                Spacer(modifier = Modifier.height(16.dp))
-            }
 
-            Button(
-                onClick = {
-                    val nextState = !isServiceRunning
-                    if (nextState) {
-                        onStartService()
-                    } else {
-                        onStopService()
-                    }
-                    isServiceRunning = nextState
+                Button(
+                    onClick = {
+                        val nextState = !isServiceRunning
+                        if (nextState) {
+                            onStartService()
+                        } else {
+                            onStopService()
+                        }
+                        isServiceRunning = nextState
 
-                    coroutineScope.launch {
-                        snackbarHostState.showSnackbar(
-                            message = if (nextState) "Recolección de datos iniciada" else "Recolección de datos detenida"
-                        )
-                    }
-                },
-                enabled = hasPermissions,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp)
-                    .height(50.dp),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                AnimatedContent(targetState = isServiceRunning, label = "Button Animation") { running ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (running) Icons.Default.Stop else Icons.Default.PlayArrow,
-                            contentDescription = null
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (running) "Detener Recolección" else "Iniciar Recolección",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar(
+                                message = if (nextState) "Recolección de datos iniciada" else "Recolección de datos detenida"
+                            )
+                        }
+                    },
+                    enabled = hasPermissions,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    AnimatedContent(targetState = isServiceRunning, label = "Button Animation") { running ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (running) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                contentDescription = null
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (running) "Detener Recolección" else "Iniciar Recolección",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
         }
+
+        // --- MODIFICADO: SnackbarHost posicionado en la parte superior del Box ---
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 80.dp, start = 16.dp, end = 16.dp)
+        )
     }
 }
 
@@ -327,7 +339,6 @@ fun StatusCard(hasPermissions: Boolean, isServiceRunning: Boolean, lastSensorDat
     }
 }
 
-// --- AÑADIDO: Nueva tarjeta para mostrar el estado del dispositivo ---
 @Composable
 fun DeviceStatusCard(status: Map<String, Any>?) {
     Card(
@@ -349,19 +360,16 @@ fun DeviceStatusCard(status: Map<String, Any>?) {
                 val network = status["network"] as? Map<*, *>
                 val storage = status["storage"] as? Map<*, *>
 
-                // Batería
                 val batteryIcon = if (battery?.get("isCharging") == true) Icons.Default.BatteryChargingFull else Icons.Default.BatteryStd
                 val batteryText = "${battery?.get("levelPercent")}%" + if (battery?.get("isCharging") == true) " (Cargando)" else ""
                 InfoRow(icon = batteryIcon, label = "Batería", value = batteryText)
                 Divider(modifier = Modifier.padding(vertical = 8.dp))
 
-                // Red
                 val networkIcon = if (network?.get("isConnected") == true) Icons.Default.SignalWifi4Bar else Icons.Default.SignalWifiOff
                 val networkText = network?.get("connectionType") as? String ?: "Desconocido"
                 InfoRow(icon = networkIcon, label = "Red", value = networkText)
                 Divider(modifier = Modifier.padding(vertical = 8.dp))
 
-                // Almacenamiento
                 val storageText = "Disponible: ${storage?.get("availableGB")} GB / Total: ${storage?.get("totalGB")} GB"
                 InfoRow(icon = Icons.Default.Storage, label = "Almacenamiento", value = storageText)
             }
@@ -370,7 +378,65 @@ fun DeviceStatusCard(status: Map<String, Any>?) {
 }
 
 @Composable
-fun InfoCard(isServiceRunning: Boolean, ipAddress: String, authToken: String?) {
+fun ApiEndpointsCard(ipAddress: String) {
+    val clipboardManager = LocalClipboardManager.current
+    val baseUrl = "http://$ipAddress:9999"
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "Endpoints de la API", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "URL Base: $baseUrl",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+
+            val deviceStatusUrl = "$baseUrl/api/device_status"
+            EndpointRow(
+                method = "GET",
+                path = "/api/device_status",
+                onCopy = { clipboardManager.setText(AnnotatedString(deviceStatusUrl)) }
+            )
+            Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+            val sensorDataUrl = "$baseUrl/api/sensor_data?start_time=...&end_time=..."
+            EndpointRow(
+                method = "GET",
+                path = "/api/sensor_data",
+                onCopy = { clipboardManager.setText(AnnotatedString(sensorDataUrl)) }
+            )
+        }
+    }
+}
+
+@Composable
+fun EndpointRow(method: String, path: String, onCopy: () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = method,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Text(text = path, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+        IconButton(onClick = onCopy) {
+            Icon(Icons.Default.ContentCopy, contentDescription = "Copiar URL")
+        }
+    }
+}
+
+
+@Composable
+fun CredentialsCard(authToken: String?) {
     val clipboardManager = LocalClipboardManager.current
 
     Card(
@@ -378,12 +444,6 @@ fun InfoCard(isServiceRunning: Boolean, ipAddress: String, authToken: String?) {
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            InfoRow(
-                icon = Icons.Default.Router,
-                label = "Dirección IP del Servidor",
-                value = if (isServiceRunning) "$ipAddress:9999" else "N/A"
-            )
-            Divider(modifier = Modifier.padding(vertical = 8.dp))
             InfoRow(
                 icon = Icons.Default.VpnKey,
                 label = "Token de Autenticación (API)",
